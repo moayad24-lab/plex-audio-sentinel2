@@ -4,7 +4,7 @@ from .core import Summary, discover, process
 from .integrations import refresh_plex, send_telegram
 
 def main(argv=None):
-    p=argparse.ArgumentParser(description="Scan a Plex media path and convert videos without AAC audio.")
+    p=argparse.ArgumentParser(description="Scan a Plex media path and create stereo AC-3 companion files for multichannel audio.")
     p.add_argument("command", choices=("scan","process"), nargs="?", default="scan")
     p.add_argument("--dry-run", action="store_true", help="inspect only; do not replace media (default for scan)")
     p.add_argument("--config", action="store_true", help="validate environment and exit")
