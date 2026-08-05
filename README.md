@@ -24,7 +24,7 @@ PLEX_MEDIA_PATH=/srv/media python -m plex_audio_sentinel process
 PLEX_MEDIA_PATH=/srv/media python -m plex_audio_sentinel --config
 ```
 
-Scan discovers common video extensions recursively and uses ffprobe JSON. A file is eligible when an audio stream has more than two channels (including 5.1/7.1/8.1) or its codec is DTS. Audio selection keeps language tags `eng`, `en`, `English`, and missing/unknown (`und`) and excludes explicitly non-English tracks. Subtitle and video streams are not language-filtered.
+Scan discovers common video extensions recursively and uses ffprobe JSON. A file is eligible when an audio stream has more than two channels (including 5.1/7.1/8.1) or its codec is DTS. Audio selection keeps language tags `eng`, `en`, `English`, and missing/unknown/undetermined (`und`) and excludes explicitly non-English tracks. Subtitle and video streams are not language-filtered.
 
 For `Movie.mkv`, processing writes `Movie.stereo-ac3.mkv` in the same directory. FFmpeg first maps a newly encoded 2-channel AC-3 downmix, then maps the retained original English/unknown audio tracks; video and subtitles are stream-copied. Conversion uses a same-directory temporary file and atomic rename, leaving `Movie.mkv` byte-for-byte unchanged. Failed conversions remove the temporary file. Existing companions are skipped safely (there is no overwrite option); remove the companion manually if re-generation is desired. Dry-run performs probing and reports what would be generated without writing anything.
 
