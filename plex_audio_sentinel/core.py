@@ -25,7 +25,7 @@ def _language(stream):
 def is_english_or_unknown(stream):
     """Keep English and absent/unknown language tags; reject explicit other languages."""
     lang = _language(stream)
-    if not lang or lang in {"und", "unknown", "unk", "none", "null"}:
+    if not lang or lang in {"und", "undetermined", "unknown", "unk", "none", "null"}:
         return True
     return lang in {"en", "eng", "english"} or lang.startswith("en-") or lang.startswith("en_")
 
