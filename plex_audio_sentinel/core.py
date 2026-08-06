@@ -12,11 +12,16 @@ COMPANION_SUFFIX = ".stereo-ac3"
 @dataclass
 class Summary:
     scanned: int = 0
+    new: int = 0
+    ignored: int = 0
     converted: int = 0
     skipped: int = 0
     errors: int = 0
+    baseline_created: bool = False
     def text(self):
-        return f"Plex Audio Sentinel: scanned {self.scanned}, converted {self.converted}, skipped {self.skipped}, errors {self.errors}."
+        return (f"Plex Audio Sentinel: scanned {self.scanned}, new {self.new}, "
+                f"ignored {self.ignored}, converted {self.converted}, "
+                f"skipped {self.skipped}, errors {self.errors}.")
 
 def _language(stream):
     tags = stream.get("tags") or {}

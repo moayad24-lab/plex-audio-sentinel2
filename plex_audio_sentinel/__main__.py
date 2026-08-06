@@ -1,26 +1,30 @@
-import argparse, logging, sys
+import argparse, functools, logging, sys
 from .config import Config
-from .core import Summary, discover, process
+from .core import process
 from .integrations import refresh_plex, send_telegram
+from .runner import run
+from .state import StateError
 
 def main(argv=None):
-    p=argparse.ArgumentParser(description="Scan a Plex media path and create stereo AC-3 companion files for multichannel audio.")
+    p=argparse.ArgumentParser(description="Scan a Plex media path and create stereo AC-3 companion files for multichannel audio. The first real run records a baseline of every discovered source file and converts nothing; later runs only process files added after the baseline.")
     p.add_argument("command", choices=("scan","process"), nargs="?", default="scan")
-    p.add_argument("--dry-run", action="store_true", help="inspect only; do not replace media (default for scan)")
+    p.add_argument("--dry-run", action="store_true", help="inspect only; never write state or media (default for scan)")
     p.add_argument("--config", action="store_true", help="validate environment and exit")
     p.add_argument("-v","--verbose",action="store_true")
     args=p.parse_args(argv)
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO, format="%(levelname)s %(message)s")
     try: cfg=Config.from_env().validate()
     except ValueError as e: p.error(str(e))
-    if args.config: print("Configuration valid"); return 0
+    if args.config:
+        print(f"Configuration valid (state file: {cfg.state_file})"); return 0
     dry=args.dry_run or args.command == "scan"
-    summary=Summary()
-    for path in discover(cfg.media_path,cfg.extensions):
-        summary.scanned += 1; result=process(path,cfg,dry)
-        if result in ("skipped",): summary.skipped += 1
-        elif result in ("converted","would-convert"): summary.converted += 1
-        else: summary.errors += 1
+    proc=functools.partial(process, dry_run=dry)
+    try:
+        summary=run(cfg, dry_run=dry, proc=proc, logger=logging.getLogger(__name__))
+    except StateError as e:
+        print(f"error: {e}", file=sys.stderr); return 1
+    except Exception as e:
+        logging.error("run failed: %s", e); return 1
     print(summary.text())
     if not dry and summary.converted:
         try: refresh_plex(cfg.plex_url,cfg.plex_token,cfg.plex_section)

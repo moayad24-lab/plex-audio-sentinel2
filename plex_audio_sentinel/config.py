@@ -2,6 +2,8 @@
 import os
 from dataclasses import dataclass
 
+from .state import default_state_path
+
 @dataclass
 class Config:
     media_path: str
@@ -13,6 +15,7 @@ class Config:
     telegram_token: str = ""
     telegram_chat_id: str = ""
     extensions: tuple = (".mkv", ".mp4", ".m4v", ".avi", ".mov", ".webm")
+    state_file: str = ""
 
     @classmethod
     def from_env(cls, environ=None):
@@ -20,12 +23,17 @@ class Config:
         path = e.get("PLEX_MEDIA_PATH", "").strip()
         if not path:
             raise ValueError("PLEX_MEDIA_PATH is required")
+        state_file = e.get("PLEX_STATE_FILE", "").strip()
+        if not state_file:
+            state_file = default_state_path(path)
         return cls(path, e.get("PLEX_URL", "").rstrip("/"), e.get("PLEX_TOKEN", ""),
                    e.get("PLEX_SECTION", ""), e.get("FFMPEG", "ffmpeg"), e.get("FFPROBE", "ffprobe"),
-                   e.get("TELEGRAM_BOT_TOKEN", ""), e.get("TELEGRAM_CHAT_ID", ""))
+                   e.get("TELEGRAM_BOT_TOKEN", ""), e.get("TELEGRAM_CHAT_ID", ""),
+                   state_file=state_file)
 
     def validate(self):
         if not self.media_path.strip(): raise ValueError("media path is empty")
+        if not self.state_file.strip(): raise ValueError("state file path is empty")
         if not self.plex_url and self.plex_section: raise ValueError("PLEX_URL required when PLEX_SECTION is set")
         if bool(self.telegram_token) != bool(self.telegram_chat_id):
             raise ValueError("TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID must be set together")
