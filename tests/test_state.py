@@ -21,10 +21,18 @@ class StateTests(unittest.TestCase):
     def test_atomic_save_and_round_trip(self):
         with tempfile.TemporaryDirectory() as directory:
             path = os.path.join(directory, "state.json")
-            state = State(path, seen=["/media/a.mkv", "/media/b.mp4"])
+            # Raw paths are given in POSIX form; the state layer must normalize
+            # them (e.g. C:\\media\\a.mkv on Windows), so expectations are built
+            # with the same normalization rather than hardcoded separators.
+            raw_paths = ["/media/a.mkv", "/media/b.mp4"]
+            normalized = sorted(
+                os.path.abspath(os.path.normpath(p)) for p in raw_paths
+            )
+            state = State(path, seen=raw_paths)
             state.save()
             self.assertTrue(os.path.exists(path))
             loaded = State.load(path)
+            self.assertEqual(sorted(loaded.seen), normalized)
             self.assertTrue(loaded.contains("/media/a.mkv"))
             self.assertTrue(loaded.contains("/media/b.mp4"))
             self.assertFalse(loaded.contains("/media/c.mkv"))
@@ -33,7 +41,7 @@ class StateTests(unittest.TestCase):
             with open(path, encoding="utf-8") as handle:
                 payload = json.load(handle)
             self.assertEqual(payload["version"], 1)
-            self.assertEqual(payload["seen"], ["/media/a.mkv", "/media/b.mp4"])
+            self.assertEqual(payload["seen"], normalized)
 
     def test_save_creates_configured_directory(self):
         with tempfile.TemporaryDirectory() as directory:
