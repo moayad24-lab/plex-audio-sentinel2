@@ -15,8 +15,11 @@ def run(cfg, dry_run=False, proc=None, logger=None):
     converted or skipped as ineligible; conversion errors are never recorded,
     so failed files are retried on the next run.
 
-    proc(path, cfg) returns "converted", "would-convert", "skipped", or
-    "error"; it defaults to core.process and can be injected for tests.
+    proc(path, cfg, dry_run=False) returns "converted", "would-convert",
+    "skipped", or "error"; it defaults to core.process and can be injected
+    for tests. run() always passes its own dry_run flag through to proc, so
+    an injected processor must accept the dry_run keyword (a default of
+    False keeps simple fakes compatible).
     """
     log = logger or logging.getLogger(__name__)
     proc = proc or process
@@ -58,7 +61,7 @@ def run(cfg, dry_run=False, proc=None, logger=None):
             summary.ignored += 1
             continue
         summary.new += 1
-        result = proc(path, cfg)
+        result = proc(path, cfg, dry_run=dry_run)
         if result in ("converted", "would-convert"):
             summary.converted += 1
         elif result == "skipped":

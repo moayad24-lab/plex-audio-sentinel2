@@ -1,6 +1,5 @@
-import argparse, functools, logging, sys
+import argparse, logging, sys
 from .config import Config
-from .core import process
 from .integrations import refresh_plex, send_telegram
 from .runner import run
 from .state import StateError
@@ -18,9 +17,9 @@ def main(argv=None):
     if args.config:
         print(f"Configuration valid (state file: {cfg.state_file})"); return 0
     dry=args.dry_run or args.command == "scan"
-    proc=functools.partial(process, dry_run=dry)
     try:
-        summary=run(cfg, dry_run=dry, proc=proc, logger=logging.getLogger(__name__))
+        # runner.run propagates dry_run to core.process itself.
+        summary=run(cfg, dry_run=dry, logger=logging.getLogger(__name__))
     except StateError as e:
         print(f"error: {e}", file=sys.stderr); return 1
     except Exception as e:
