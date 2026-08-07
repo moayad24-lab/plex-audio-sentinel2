@@ -1,7 +1,7 @@
 """Orchestration: discovery, baseline state, and per-file processing."""
 import logging
 
-from .core import Summary, discover, process
+from .core import Summary, build_output_map, discover, process
 from .state import State, StateError, default_state_path
 
 
@@ -15,6 +15,12 @@ def run(cfg, dry_run=False, proc=None, logger=None):
     converted or skipped as ineligible; conversion errors are never recorded,
     so failed files are retried on the next run.
 
+    Only source media paths are ever tracked: the output folder
+    (cfg.output_path) is excluded from discovery even when nested under the
+    media root, so generated companions are never considered new sources. The
+    collision-safe source -> companion mapping is attached to cfg.output_names
+    for core.process to use.
+
     proc(path, cfg, dry_run=False) returns "converted", "would-convert",
     "skipped", or "error"; it defaults to core.process and can be injected
     for tests. run() always passes its own dry_run flag through to proc, so
@@ -24,7 +30,10 @@ def run(cfg, dry_run=False, proc=None, logger=None):
     log = logger or logging.getLogger(__name__)
     proc = proc or process
     state_path = cfg.state_file or default_state_path(cfg.media_path)
-    sources = sorted(discover(cfg.media_path, cfg.extensions))
+    output_dir = (cfg.output_path or "").strip()
+    sources = sorted(discover(cfg.media_path, cfg.extensions, exclude_dir=output_dir or None))
+    if output_dir:
+        cfg.output_names = build_output_map(sources, output_dir, cfg.media_path)
     summary = Summary(scanned=len(sources))
 
     try:

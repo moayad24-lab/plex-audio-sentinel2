@@ -15,7 +15,7 @@ def main(argv=None):
     try: cfg=Config.from_env().validate()
     except ValueError as e: p.error(str(e))
     if args.config:
-        print(f"Configuration valid (state file: {cfg.state_file})"); return 0
+        print(f"Configuration valid (state file: {cfg.state_file}, output path: {cfg.output_path})"); return 0
     dry=args.dry_run or args.command == "scan"
     try:
         # runner.run propagates dry_run to core.process itself.

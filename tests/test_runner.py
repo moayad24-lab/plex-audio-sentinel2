@@ -6,7 +6,6 @@ import tempfile
 import unittest
 
 from plex_audio_sentinel.config import Config
-from plex_audio_sentinel.core import output_path
 from plex_audio_sentinel.runner import run
 from plex_audio_sentinel.state import STATE_FILENAME, State, StateError
 
@@ -49,6 +48,52 @@ class RunnerTests(unittest.TestCase):
             self.assertFalse(state.contains(os.path.join(directory, "x.stereo-ac3.mkv")))
             with open(cfg.state_file, encoding="utf-8") as handle:
                 self.assertEqual(len(json.load(handle)["seen"]), 2)
+
+    def test_output_folder_is_never_scanned_or_tracked_even_when_nested(self):
+        with tempfile.TemporaryDirectory() as directory:
+            outdir = os.path.join(directory, "Converted")
+            os.makedirs(outdir)
+            with open(os.path.join(directory, "a.mkv"), "wb"):
+                pass
+            # Companion-named and unrelated files inside the output folder are
+            # never sources, so the baseline tracks only real library media.
+            with open(os.path.join(outdir, "gen.stereo-ac3.mkv"), "wb"):
+                pass
+            with open(os.path.join(outdir, "junk.mkv"), "wb"):
+                pass
+            cfg = Config(directory, state_file=os.path.join(directory, STATE_FILENAME), output_path=outdir)
+            proc, calls = make_proc({})
+            summary = run(cfg, proc=proc)
+            self.assertTrue(summary.baseline_created)
+            self.assertEqual(summary.scanned, 1)  # only a.mkv is a source
+            self.assertEqual(calls, [])
+            state = State.load(cfg.state_file)
+            self.assertEqual(len(state.seen), 1)
+            self.assertTrue(state.contains(os.path.join(directory, "a.mkv")))
+            self.assertFalse(state.contains(os.path.join(outdir, "gen.stereo-ac3.mkv")))
+            self.assertFalse(state.contains(os.path.join(outdir, "junk.mkv")))
+
+    def test_run_builds_collision_safe_output_map(self):
+        with tempfile.TemporaryDirectory() as directory:
+            outdir = os.path.join(directory, "Converted")
+            sub_a = os.path.join(directory, "A")
+            sub_b = os.path.join(directory, "B")
+            os.makedirs(sub_a)
+            os.makedirs(sub_b)
+            os.makedirs(outdir)
+            same1 = os.path.join(sub_a, "Movie.mkv")
+            same2 = os.path.join(sub_b, "Movie.mkv")
+            with open(same1, "wb"):
+                pass
+            with open(same2, "wb"):
+                pass
+            cfg = Config(directory, state_file=os.path.join(directory, STATE_FILENAME), output_path=outdir)
+            run(cfg, proc=make_proc({})[0])  # baseline
+            mapping = cfg.output_names
+            self.assertEqual(len(mapping), 2)
+            self.assertNotEqual(mapping[same1], mapping[same2])
+            for dst in mapping.values():
+                self.assertTrue(dst.startswith(os.path.join(outdir, "Movie.stereo-ac3-")), dst)
 
     def test_second_run_processes_only_new_files(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -191,9 +236,11 @@ class RunnerTests(unittest.TestCase):
         without dry_run and create a companion file.
         """
         with tempfile.TemporaryDirectory() as directory:
+            outdir = os.path.join(directory, "Converted")
+            os.makedirs(outdir)
             with open(os.path.join(directory, "old.mkv"), "wb"):
                 pass
-            cfg = Config(directory, state_file=os.path.join(directory, STATE_FILENAME))
+            cfg = Config(directory, state_file=os.path.join(directory, STATE_FILENAME), output_path=outdir)
             run(cfg)  # baseline via the default processor
             new_path = os.path.join(directory, "new.mkv")
             subprocess.run(
@@ -204,7 +251,7 @@ class RunnerTests(unittest.TestCase):
                  "-metadata:s:a:0", "language=eng", new_path],
                 check=True, capture_output=True,
             )
-            companion = output_path(new_path)
+            companion = os.path.join(outdir, "new.stereo-ac3.mkv")
             self.assertFalse(os.path.exists(companion))
             with open(cfg.state_file, "rb") as handle:
                 before = handle.read()
@@ -212,6 +259,7 @@ class RunnerTests(unittest.TestCase):
             self.assertEqual(summary.new, 1)
             self.assertEqual(summary.converted, 1)
             self.assertFalse(os.path.exists(companion))  # no conversion on dry run
+            self.assertFalse(os.path.exists(os.path.join(directory, "new.stereo-ac3.mkv")))
             with open(cfg.state_file, "rb") as handle:
                 self.assertEqual(handle.read(), before)  # no state mutation on dry run
             self.assertFalse(State.load(cfg.state_file).contains(new_path))
@@ -220,6 +268,71 @@ class RunnerTests(unittest.TestCase):
             self.assertEqual(summary2.converted, 1)
             self.assertTrue(os.path.exists(companion))
             self.assertTrue(State.load(cfg.state_file).contains(new_path))
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
+                         "ffmpeg/ffprobe required for the end-to-end fixture")
+    def test_end_to_end_with_separate_output_folder(self):
+        """Real ffmpeg: baseline, then convert a new file into PLEX_OUTPUT_PATH.
+
+        Verifies the new AC-3 stereo track is the first audio stream, English
+        originals are retained, explicit non-English audio is dropped, the
+        original file stays byte-for-byte unchanged, the companion never lands
+        beside the original, and generated outputs are never re-discovered as
+        sources or recorded in the baseline.
+        """
+        with tempfile.TemporaryDirectory() as directory:
+            outdir = os.path.join(directory, "Converted")
+            os.makedirs(outdir)
+            with open(os.path.join(directory, "old.mkv"), "wb"):
+                pass
+            cfg = Config(directory, state_file=os.path.join(directory, STATE_FILENAME), output_path=outdir)
+            run(cfg)  # baseline
+            new_path = os.path.join(directory, "new.mkv")
+            subprocess.run(
+                ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+                 "-f", "lavfi", "-i", "testsrc2=duration=1:size=160x120:rate=10",
+                 "-f", "lavfi", "-i", "anullsrc=channel_layout=5.1:sample_rate=48000",
+                 "-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000",
+                 "-t", "1", "-c:v", "mpeg4", "-q:v", "5",
+                 "-map", "0:v", "-map", "1:a", "-map", "2:a",
+                 "-c:a:0", "ac3", "-metadata:s:a:0", "language=eng",
+                 "-c:a:1", "aac", "-metadata:s:a:1", "language=fra",
+                 new_path],
+                check=True, capture_output=True,
+            )
+            with open(new_path, "rb") as handle:
+                original_bytes = handle.read()
+            summary = run(cfg)
+            self.assertEqual(summary.new, 1)
+            self.assertEqual(summary.converted, 1)
+            companion = os.path.join(outdir, "new.stereo-ac3.mkv")
+            self.assertTrue(os.path.exists(companion))
+            # Never beside the original; the original is byte-for-byte unchanged.
+            self.assertFalse(os.path.exists(os.path.join(directory, "new.stereo-ac3.mkv")))
+            with open(new_path, "rb") as handle:
+                self.assertEqual(handle.read(), original_bytes)
+            # The new track is the first audio stream and is stereo AC-3; the
+            # English 5.1 original is kept as a copy; French is dropped.
+            probe = subprocess.run(
+                ["ffprobe", "-v", "error", "-show_streams", "-of", "json", companion],
+                check=True, capture_output=True, text=True,
+            )
+            streams = json.loads(probe.stdout)["streams"]
+            audio_streams = [s for s in streams if s["codec_type"] == "audio"]
+            self.assertGreaterEqual(len(audio_streams), 2)
+            self.assertEqual(audio_streams[0]["codec_name"], "ac3")
+            self.assertEqual(audio_streams[0]["channels"], 2)
+            self.assertEqual(audio_streams[0].get("tags", {}).get("language"), "eng")
+            self.assertEqual(audio_streams[1]["codec_name"], "ac3")
+            self.assertEqual(audio_streams[1]["channels"], 6)
+            languages = [s.get("tags", {}).get("language") for s in audio_streams]
+            self.assertNotIn("fra", languages)  # explicit non-English dropped
+            self.assertTrue(any(s["codec_type"] == "video" for s in streams))
+            # The generated companion is never discovered again as a source.
+            summary2 = run(cfg)
+            self.assertEqual(summary2.new, 0)
+            self.assertEqual(summary2.scanned, 2)  # still only old.mkv + new.mkv
+            self.assertFalse(State.load(cfg.state_file).contains(companion))
 
     def test_configured_state_file_outside_media_root(self):
         with tempfile.TemporaryDirectory() as media, tempfile.TemporaryDirectory() as state_dir:
